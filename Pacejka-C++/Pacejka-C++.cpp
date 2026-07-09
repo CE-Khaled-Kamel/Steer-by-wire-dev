@@ -2,6 +2,7 @@
 #include <math.h>
 #include <conio.h>
 #include <limits>
+#include <iomanip>
 
 using namespace std;
 
@@ -12,6 +13,35 @@ struct TireConfig
 {
     float D, C, B, E;
 };
+
+// Unpadded steering command to be sent to MCU
+#pragma pack(push,1)
+struct SteerCommandPacket
+{
+    uint16_t header;
+    uint32_t sequence_id;
+    float target_angle;
+    uint8_t checksum;
+};
+#pragma pack(pop)
+
+// Calculate and assign packet checksum
+void assignChecksum(SteerCommandPacket& p)
+{
+    // Reinterpret the packet as bytes
+    const uint8_t* byte_ptr = reinterpret_cast<const uint8_t*>(&p);
+    size_t num_bytes = sizeof(p);
+    num_bytes--;  // Exclude the checksum itself from the calculation
+
+    uint8_t checksum = 0;
+    for(size_t i=0; i< num_bytes; ++i)
+    {
+        checksum ^= byte_ptr[i];
+    }
+
+    // Assign checksum
+    p.checksum = checksum;
+}
 
 // Generate a linear space between a and b (a<b)
 void linspace(float* arr, int num_elements, float a, float b)
@@ -96,12 +126,25 @@ int main()
     float a = 0.0, b =20.0;
     float angles[num_elements] = {0};
     float forces[num_elements] = {0};
+    float optAngle = 0;
+    SteerCommandPacket p = {0xAA55, 0x00000001, 0x0,0x0};
     // Configuration of a tire on dry asphalt
     TireConfig config = {1.00, 1.90, 10.00, 0.97};
 
     linspace(angles, num_elements, a, b);
     PacejkaForce(config, angles, forces, num_elements);
-    cout<<OptimalAngle(forces, angles, num_elements);
+    optAngle = OptimalAngle(forces, angles, num_elements);
+    p.target_angle = optAngle;
+    assignChecksum(p);
+    const uint8_t* byte_ptr = reinterpret_cast<const uint8_t*>(&p);
+    size_t num_bytes = sizeof(p);
+
+    cout << "Optimal Steering Angle: " << optAngle << '\n';
+    cout << "Steering Packet: ";
+    for(size_t i=0; i<num_bytes; ++i)
+    {
+        cout << hex << static_cast<int>(byte_ptr[i]) << " ";
+    }
 
     return 0;
 }
