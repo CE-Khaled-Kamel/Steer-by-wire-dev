@@ -60,12 +60,12 @@ void linspace(float* arr, int num_elements, float a, float b)
 
 inline float toRadian(float degree)
 {
-    return pi * degree/180.0;
+    return pi * degree/180.0f;
 }
 
 void PacejkaForce(const TireConfig& config, const float* slipAngles, float* output_forces, int num_elements)
 {
-    float rad = 0;
+    float rad = 0.0f;
     for(int i=0; i<num_elements; ++i)
     {
 
@@ -82,7 +82,7 @@ float OptimalAngle(const float* forces, const float* angles, int num_elements)
     float maxForce = std::numeric_limits<float>::lowest();
     float minAngle = std::numeric_limits<float>::max();
 
-    float* optimalAngles = new float[num_elements] {0};
+    float* optimalAngles = new float[num_elements] {0.0f};
     int anglesCount = 0;
 
     // Find maximum force
@@ -122,26 +122,26 @@ const char Esc = 0x1B;
 
 int main()
 {
-    int num_elements = 5000;
+    const int num_elements = 5000;
     // Slip angle range
-    float a = 0.0, b =20.0;
+    float a = 0.0f, b =20.0f;
     float angles[num_elements] = {0};
     float forces[num_elements] = {0};
     float optAngle = 0;
     SteerCommandPacket p = {0xAA55, 0x00000001, 0x0,0x0};
     // Configuration of a tire on dry asphalt
-    TireConfig config = {1.00, 1.90, 10.00, 0.97};
+    TireConfig config = {1.00f, 1.90f, 10.00f, 0.97f};
 
     linspace(angles, num_elements, a, b);
 
     chrono::time_point<chrono::steady_clock> Start = chrono::steady_clock::now();
     PacejkaForce(config, angles, forces, num_elements);
-    optAngle = OptimalAngle(forces, angles, num_elements);
     chrono::time_point<chrono::steady_clock> End = chrono::steady_clock::now();
 
     chrono::duration<double, micro> elapsed = End - Start;
     cout << "Time: " << elapsed.count() << "us\n";
 
+    optAngle = OptimalAngle(forces, angles, num_elements);
     p.target_angle = optAngle;
     assignChecksum(p);
     const uint8_t* byte_ptr = reinterpret_cast<const uint8_t*>(&p);
