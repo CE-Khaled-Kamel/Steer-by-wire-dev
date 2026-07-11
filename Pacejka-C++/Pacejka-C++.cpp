@@ -3,6 +3,7 @@
 #include <conio.h>
 #include <limits>
 #include <iomanip>
+#include <chrono>
 
 using namespace std;
 
@@ -121,7 +122,7 @@ const char Esc = 0x1B;
 
 int main()
 {
-    int num_elements = 50;
+    int num_elements = 5000;
     // Slip angle range
     float a = 0.0, b =20.0;
     float angles[num_elements] = {0};
@@ -132,8 +133,15 @@ int main()
     TireConfig config = {1.00, 1.90, 10.00, 0.97};
 
     linspace(angles, num_elements, a, b);
+
+    chrono::time_point<chrono::steady_clock> Start = chrono::steady_clock::now();
     PacejkaForce(config, angles, forces, num_elements);
     optAngle = OptimalAngle(forces, angles, num_elements);
+    chrono::time_point<chrono::steady_clock> End = chrono::steady_clock::now();
+
+    chrono::duration<double, micro> elapsed = End - Start;
+    cout << "Time: " << elapsed.count() << "us\n";
+
     p.target_angle = optAngle;
     assignChecksum(p);
     const uint8_t* byte_ptr = reinterpret_cast<const uint8_t*>(&p);
