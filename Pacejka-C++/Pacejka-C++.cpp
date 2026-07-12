@@ -1,3 +1,5 @@
+#include "Pacejka.h"
+#include "Pacejka.cuh"
 #include <iostream>
 #include <math.h>
 #include <conio.h>
@@ -6,25 +8,6 @@
 #include <chrono>
 
 using namespace std;
-
-const float pi = acos(-1);
-
-// Pacejka general formula coefficients
-struct TireConfig
-{
-    float D, C, B, E;
-};
-
-// Unpadded steering command to be sent to MCU
-#pragma pack(push,1)
-struct SteerCommandPacket
-{
-    uint16_t header;
-    uint32_t sequence_id;
-    float target_angle;
-    uint8_t checksum;
-};
-#pragma pack(pop)
 
 // Calculate and assign packet checksum
 void assignChecksum(SteerCommandPacket& p)
@@ -135,7 +118,10 @@ int main()
     linspace(angles, num_elements, a, b);
 
     chrono::time_point<chrono::steady_clock> Start = chrono::steady_clock::now();
-    PacejkaForce(config, angles, forces, num_elements);
+    // GPU Version
+    PacejkaForce_Cuda(config, angles, forces, num_elements);
+    // CPU Version
+    //PacejkaForce(config, angles, forces, num_elements);
     chrono::time_point<chrono::steady_clock> End = chrono::steady_clock::now();
 
     chrono::duration<double, micro> elapsed = End - Start;
