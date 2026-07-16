@@ -5,6 +5,36 @@
 #include <device_launch_parameters.h>
 #include <stdexcept>
 #include <string>
+#include <cstdint>
+#include <math.h>
+
+constexpr float pi = 3.14159265359f;
+
+// Pacejka general formula coefficients
+struct TireConfig
+{
+    float D, C, B, E;
+};
+
+// Unpadded steering command to be sent to MCU
+#pragma pack(push,1)
+struct SteerCommandPacket
+{
+    uint16_t header;
+    uint32_t sequence_id;
+    float target_angle;
+    uint8_t checksum;
+};
+#pragma pack(pop)
+
+#pragma pack(push,1)
+struct IncomingTelemetry
+{
+    float vehicle_speed_kph;
+    float surface_friction_estimate;
+    float driver_steering_wheel_angle;
+};
+#pragma pack(pop)
 
 class CudaException : public std::runtime_error
 {
