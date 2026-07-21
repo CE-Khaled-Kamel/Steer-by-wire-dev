@@ -31,8 +31,8 @@ struct SteerCommandPacket
 struct IncomingTelemetry
 {
     float vehicle_speed_kph;
-    float surface_friction_estimate;
     float driver_steering_wheel_angle;
+    float surface_friction_estimate;
 };
 #pragma pack(pop)
 

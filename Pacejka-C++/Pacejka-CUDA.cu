@@ -13,6 +13,12 @@
 
 using namespace std;
 
+#ifdef DEBUG
+    #define DEBUG_PRINT(x) std::cout << "[DEBUG] " << x
+#else
+    #define DEBUG_PRINT(x)
+#endif // DEBUG
+
 __global__ void Pacejka_Kernel(const TireConfig* config, const float* slipAngles, float* output_forces, int num_elements)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -89,50 +95,27 @@ void linspace(float* arr, int num_elements, float a, float b)
 float OptimalAngle(const float* forces, const float* angles, int num_elements)
 {
     float maxForce = std::numeric_limits<float>::lowest();
-    float minAngle = std::numeric_limits<float>::max();
-
-    float* optimalAngles = new float[num_elements] {0.0f};
-    int anglesCount = 0;
+    float peakAngle = std::numeric_limits<float>::max();
 
     // Find maximum force
     for(int i=0; i <num_elements; ++i)
     {
-        if(maxForce < forces[i])
+        if(maxForce < fabs(forces[i]))
         {
-            maxForce = forces[i];
+            maxForce = fabs(forces[i]);
+            peakAngle = angles[i];
         }
     }
 
-    // look for multiples maximums
-    for(int i=0; i <num_elements; ++i)
-    {
-        if(maxForce == forces[i])
-        {
-            optimalAngles[anglesCount] = angles[i];
-            ++anglesCount;
-        }
-    }
-
-    // Choose the smallest angle with maximum force
-    for(int i=0; i <anglesCount; ++i)
-    {
-        if(minAngle > optimalAngles[i])
-        {
-            minAngle = optimalAngles[i];
-        }
-    }
-
-    delete[] optimalAngles;
-
-    return minAngle;
+    return peakAngle;
 }
 
 const char Esc = 0x1B;
 const bool Headless = true;
-const uint32_t printRate = 1000; // cycles
+const uint32_t printRate = 100; // cycles
 const chrono::duration<int, micro> targetFrameTime(10000); // Total frame time
 const chrono::duration<int, micro> dropLimit (500); // Time tolerance for droped frames
-int cycles = 1000;
+int cycles = 2000;
 const int wsaVersionLO = 2;
 const int wsaVersionHi = 2;
 
@@ -155,23 +138,25 @@ int main()
     int BufLen = 1024;
     sockaddr_in senderAddr;
     int senderAddrSize = sizeof(senderAddr);
-    IncomingTelemetry telemetry;
+    IncomingTelemetry telemetry = {0.0f, 0.0f, 0.0f};
     size_t telemetrySize = sizeof(telemetry);
 
     // Slip angle range
     float a = -10.0f, b = 10.0f;
     float angles[num_elements] = {0};
     float forces[num_elements] = {0};
-    float optAngle = 0;
+    float peakAngle = 0;
     SteerCommandPacket p = {0xAA55, 0x00000001, 0x0,0x0};
-    // Configuration of a tire on dry asphalt
-    TireConfig config = {1.00f, 1.30f, 10.00f, 0.97f};
+
+    float Ca = 50000.0f; // Cornering Stiffness(N/rad)
     float FzStatic = 3924.0f; // Vertical static (weight) downforce on one tire
     float airDensity =  1.225f;
     float CL = -0.20f; // Lift Coefficient
     float A = 2.0f; // Car Frontal Area
     float FzAero = 0; // Vertical aerodynamic downforce on one tire
-    float Fztotal = 0; // Total vertical downforce on one tire
+    float Fztotal = FzStatic; // Total vertical downforce on one tire
+    // Configuration of a tire on dry asphalt
+    TireConfig config = {Fztotal, 1.30f, Ca / (1.30*Fztotal), 0.1f};
 
     // Choose which GPU to run on
     CUDA_CALL( cudaSetDevice(0) );
@@ -246,7 +231,7 @@ int main()
         {
             // Dropped a frame
             ++droppedFrames;
-            cout << dec << "WARN: Frame Drop Detected! Loop took " << frameTime.count() << " microseconds.\n";
+            cout << dec << "WARN: Frame Drop Detected! Loop took " << frameTime.count() << " microseconds.\n" << endl;
         }
         // New frame
         ++p.sequence_id;
@@ -270,9 +255,10 @@ int main()
         {
             memcpy(&telemetry, RecvBuf, telemetrySize);
             FzAero = 0.5f * airDensity*CL*A * pow(telemetry.vehicle_speed_kph / 3.6f  ,2);
-            Fztotal = FzStatic + 0.25 * FzAero;
+            Fztotal = FzStatic - 0.25 * FzAero;
             // Update tire configuration
             config.D = Fztotal * telemetry.surface_friction_estimate;
+            config.B = Ca / (config.C*config.D);
             a = telemetry.driver_steering_wheel_angle - 10.0f;
             b = telemetry.driver_steering_wheel_angle + 10.0f;
         }
@@ -282,21 +268,37 @@ int main()
 
         // GPU Version
         PacejkaForce_Cuda(config, angles, forces, &d_config, &d_Angles, &d_forces, num_elements);
+        if(!Headless || p.sequence_id%printRate == 0)
+        {
+            for(int i=0; i<num_elements; ++i)
+            {
+                DEBUG_PRINT(forces[i] << " ");
+            }
+        }
         // Find target angle
-        optAngle = OptimalAngle(forces, angles, num_elements);
-        p.target_angle = optAngle;
+        peakAngle = OptimalAngle(forces, angles, num_elements);
+        p.target_angle = (fabs(telemetry.driver_steering_wheel_angle)>fabs(peakAngle))? peakAngle: telemetry.driver_steering_wheel_angle;
 
         assignChecksum(p);
 
-        byte_ptr = reinterpret_cast<uint8_t*>(&p);
-        num_bytes = sizeof(p);
-        for(i=0; i<num_bytes; ++i)
-        {
-            if(!Headless || p.sequence_id%printRate == 0)
-                cout << hex << static_cast<int>(byte_ptr[i]) << " ";
-        }
+//        byte_ptr = reinterpret_cast<uint8_t*>(&p);
+//        num_bytes = sizeof(p);
+//        for(i=0; i<num_bytes; ++i)
+//        {
+//            if(!Headless || p.sequence_id%printRate == 0)
+//                cout << hex << static_cast<int>(byte_ptr[i]) << " ";
+//        }
+//        if(!Headless || p.sequence_id%printRate == 0)
+//            cout << endl;
+
         if(!Headless || p.sequence_id%printRate == 0)
-            cout << endl;
+            cout << dec << std::fixed << std::setprecision(2)
+                 << "SEQ: " << p.sequence_id << " | "
+                 << "UDP: " << telemetry.vehicle_speed_kph << "kph, Mu:"
+                            << telemetry.surface_friction_estimate << ", Drv: "
+                            << telemetry.driver_steering_wheel_angle << " | "
+                 << "PHYS: "<< "Fz: " << Fztotal << "N, D: " << config.D << ", B: " << config.B << " | "
+                 << "OUT: " << "Tgt: " << p.target_angle << endl;
 
         prevStart = Start;
 
